@@ -177,10 +177,15 @@ svg { width: 100%; height: 100%; display: block; }
 
 /* Summary Metrics Bar */
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: fadeIn 0.4s ease both; }
+.stat-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 600px) {
+  .stat-grid, .stat-grid-3 { grid-template-columns: repeat(2, 1fr); }
+}
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: fadeIn 0.4s ease both; text-align: center; }
 .stat-label { font-size: 11px; text-transform: uppercase; color: var(--muted-dim); margin-bottom: 4px; letter-spacing: 0.05em; }
 .stat-value { font-family: var(--sans); font-size: 28px; font-weight: 800; line-height: 1; }
 .stat-value.red { color: var(--danger); }
+.stat-value.yellow { color: var(--yellow); }
 .stat-value.green { color: var(--accent); }
 
 /* Step-through */
@@ -328,6 +333,39 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
     <div class="section-label">03 — Result Overview</div>
     <div id="result-banner-wrap"></div>
     
+    <div id="complexity-section" style="display: none;">
+      <div class="section-label">03B — Complexity</div>
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-title">System Complexity Report</div>
+        <div class="stat-grid-3">
+          <div class="stat-card" style="animation-delay: 0ms;">
+            <div class="stat-label">Graph Density</div>
+            <div class="stat-value" id="comp-density">0</div>
+          </div>
+          <div class="stat-card" style="animation-delay: 40ms;">
+            <div class="stat-label">Risk Score</div>
+            <div class="stat-value" id="comp-risk">0</div>
+          </div>
+          <div class="stat-card" style="animation-delay: 80ms;">
+            <div class="stat-label">Max Chain Length</div>
+            <div class="stat-value" id="comp-chain">0</div>
+          </div>
+          <div class="stat-card" style="animation-delay: 120ms;">
+            <div class="stat-label">Cycles Detected</div>
+            <div class="stat-value" id="comp-cycles">0</div>
+          </div>
+          <div class="stat-card" style="animation-delay: 160ms;">
+            <div class="stat-label">Contested Resources</div>
+            <div class="stat-value" id="comp-contested">0</div>
+          </div>
+          <div class="stat-card" style="animation-delay: 200ms;">
+            <div class="stat-label">Avg Wait Degree</div>
+            <div class="stat-value" id="comp-avg-wait">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="resolution-wrap"></div>
 
     <div class="stat-grid" id="metrics-bar">
@@ -422,7 +460,7 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
 
   <footer>
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.7.0</span>
+    <span class="footer-tag">v2.8.0</span>
   </footer>
 
 </div>
@@ -733,6 +771,7 @@ function analyzeSystem(isSimulated = false) {
   renderDependencies(p, waitfor, dlp);
   renderResolution(deadlockDetected, dlp, isSimulated);
   renderGraph(p, waitfor, dlp, activeNodes);
+  renderComplexityReport(p, r, alloc, waitfor, dlp, currentTrace);
   renderMetricsBar(p, r, dlp);
   
   // Setup Step UI
@@ -747,7 +786,7 @@ function analyzeSystem(isSimulated = false) {
 }
 
 // --- Rendering functions ---
-function animateValue(id, start, end, duration) {
+function animateValue(id, start, end, duration, suffix = '', decimals = 0) {
   const obj = document.getElementById(id);
   if(!obj) return;
   let startTimestamp = null;
@@ -755,14 +794,91 @@ function animateValue(id, start, end, duration) {
     if (!startTimestamp) startTimestamp = timestamp;
     const progress = Math.min((timestamp - startTimestamp) / duration, 1);
     const easeProgress = progress * (2 - progress); // ease-out quad
-    obj.innerText = Math.floor(easeProgress * (end - start) + start);
+    const val = easeProgress * (end - start) + start;
+    obj.innerHTML = val.toFixed(decimals) + suffix;
     if (progress < 1) {
       window.requestAnimationFrame(step);
     } else {
-      obj.innerText = end;
+      obj.innerHTML = end.toFixed(decimals) + suffix;
     }
   };
   window.requestAnimationFrame(step);
+}
+
+function renderComplexityReport(p, r, alloc, waitfor, dlp, trace) {
+  document.getElementById('complexity-section').style.display = 'block';
+
+  let edgeCount = 0;
+  for(let i=0; i<p; i++) {
+    for(let j=0; j<p; j++) {
+      if(waitfor[i][j]) edgeCount++;
+    }
+  }
+
+  // 1. Graph Density
+  const maxEdges = p * (p - 1);
+  const density = maxEdges > 0 ? (edgeCount / maxEdges) * 100 : 0;
+  let densityColor = density < 30 ? 'green' : (density <= 60 ? 'yellow' : 'red');
+
+  // 2. Deadlock Risk Score
+  let dlpCount = 0;
+  for(let i=0; i<p; i++) if(dlp[i]) dlpCount++;
+  const risk = p > 0 ? (dlpCount / p) * 100 : 0;
+  let riskColor = risk === 0 ? 'green' : (risk < 50 ? 'yellow' : 'red');
+
+  // 3. Max Chain Length (DFS)
+  let maxChain = 0;
+  function dfsDepth(u, visitedPath) {
+    if (visitedPath.has(u)) return 0;
+    let maxChild = 0;
+    visitedPath.add(u);
+    for(let v=0; v<p; v++) {
+      if(waitfor[u][v]) {
+        maxChild = Math.max(maxChild, 1 + dfsDepth(v, visitedPath));
+      }
+    }
+    visitedPath.delete(u);
+    return maxChild;
+  }
+  for(let i=0; i<p; i++) {
+    maxChain = Math.max(maxChain, dfsDepth(i, new Set()));
+  }
+
+  // 4. Cycle Count
+  let cycleCount = 0;
+  for(let i=0; i<trace.length; i++) {
+    if(trace[i].type === 'cycle') cycleCount++;
+  }
+  let cycleColor = cycleCount > 0 ? 'red' : 'green';
+
+  // 5. Contested Resources
+  let contested = 0;
+  for(let j=0; j<r; j++) {
+    let procs = 0;
+    for(let i=0; i<p; i++) if(alloc[i][j] > 0) procs++;
+    if(procs > 1) contested++;
+  }
+
+  // 6. Avg Wait Degree
+  const avgWait = p > 0 ? edgeCount / p : 0;
+
+  document.getElementById('comp-density').className = `stat-value ${densityColor}`;
+  animateValue('comp-density', 0, density, 600, '<span style="font-size:14px">%</span>', 0);
+
+  document.getElementById('comp-risk').className = `stat-value ${riskColor}`;
+  animateValue('comp-risk', 0, risk, 600, '<span style="font-size:14px">%</span>', 0);
+
+  document.getElementById('comp-chain').className = `stat-value`;
+  animateValue('comp-chain', 0, maxChain, 600);
+
+  document.getElementById('comp-cycles').className = `stat-value ${cycleColor}`;
+  animateValue('comp-cycles', 0, cycleCount, 600);
+
+  document.getElementById('comp-contested').className = `stat-value`;
+  animateValue('comp-contested', 0, contested, 600);
+
+  document.getElementById('comp-avg-wait').className = `stat-value`;
+  animateValue('comp-avg-wait', 0, avgWait, 600, '', 2);
 }
 
 function renderMetricsBar(p, r, dlp) {
