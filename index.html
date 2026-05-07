@@ -142,16 +142,20 @@ kbd { font-family: var(--mono); color: var(--text); background: rgba(255,255,255
 /* SVG Graph */
 .svg-container { width: 100%; height: 400px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); position: relative; overflow: hidden; }
 svg { width: 100%; height: 100%; display: block; }
-.node circle { fill: var(--surface); stroke: var(--muted-dim); stroke-width: 2; transition: all 0.3s; }
-.node text { fill: var(--text); font-family: var(--mono); font-size: 14px; text-anchor: middle; dominant-baseline: central; user-select: none; }
+.node { cursor: grab; }
+.node.dragging { cursor: grabbing; }
+.node circle { fill: var(--surface); stroke: var(--muted-dim); stroke-width: 2; transition: stroke 0.3s, fill 0.3s; }
+.node text { fill: var(--text); font-family: var(--mono); font-size: 14px; text-anchor: middle; dominant-baseline: central; user-select: none; pointer-events: none; }
 .node.safe circle { stroke: var(--accent); }
 .node.deadlock circle { stroke: var(--danger); fill: var(--danger-dim); }
 .node.deadlock circle.pulse { animation: pulseRed 2s infinite; }
 .node.active circle { stroke: var(--yellow); fill: var(--yellow-dim); stroke-width: 3; }
-.edge path { fill: none; stroke: var(--muted-dim); stroke-width: 2; transition: all 0.3s; }
+.edge path { fill: none; stroke: var(--muted-dim); stroke-width: 2; transition: stroke 0.3s; }
 .edge.deadlock path { stroke: var(--danger); }
 .edge.active path { stroke: var(--yellow); }
 .edge.animated path { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: drawEdge 1s forwards ease-in-out; }
+.btn-reset-layout { position: absolute; top: 10px; right: 10px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: var(--mono); cursor: pointer; z-index: 10; transition: all 0.2s; }
+.btn-reset-layout:hover { border-color: var(--text); color: var(--text); }
 
 /* Dependencies */
 .dep-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -346,7 +350,8 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
     </div>
 
     <div class="section-label">04 — Wait-For Graph</div>
-    <div class="card" style="padding: 0; border: none;">
+    <div class="card" style="padding: 0; border: none; position: relative;">
+      <button class="btn-reset-layout" onclick="resetGraphLayout()">↺ Reset Layout</button>
       <div class="svg-container" id="svg-container">
         <!-- SVG injected via JS -->
       </div>
@@ -413,7 +418,7 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
 
   <footer>
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.5.0</span>
+    <span class="footer-tag">v2.6.0</span>
   </footer>
 
 </div>
@@ -459,6 +464,7 @@ let lastAnalysisResult = null; // store results for exports
 let sessionHistory = [];
 let historyIdCounter = 1;
 let historyExpanded = false;
+let nodePositions = {};
 
 // --- Initialization ---
 function init() {
@@ -907,6 +913,25 @@ function resetSimulation() {
 }
 
 // --- SVG Graph Rendering ---
+function getEdgePath(ni, nj, isBidirectional) {
+  let dx = nj.x - ni.x;
+  let dy = nj.y - ni.y;
+  let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+  let nx = -dy/dist;
+  let ny = dx/dist;
+  let curveOffset = isBidirectional ? 15 : 0;
+  let cx = (ni.x + nj.x)/2 + nx*curveOffset;
+  let cy = (ni.y + nj.y)/2 + ny*curveOffset;
+  return `M ${ni.x} ${ni.y} Q ${cx} ${cy} ${nj.x} ${nj.y}`;
+}
+
+function resetGraphLayout() {
+  nodePositions = {};
+  if(lastAnalysisResult) {
+    renderGraph(lastAnalysisResult.p, lastAnalysisResult.waitfor, lastAnalysisResult.dlp, lastAnalysisResult.activeNodes);
+  }
+}
+
 function renderGraph(p, waitfor, dlp, activeNodes) {
   const svgWrap = document.getElementById('svg-container');
   const W = svgWrap.clientWidth || 800;
@@ -936,13 +961,18 @@ function renderGraph(p, waitfor, dlp, activeNodes) {
   
   // Calculate node positions
   activeArr.forEach((id, idx) => {
-    const angle = (idx / n) * 2 * Math.PI - Math.PI / 2; // start at top
-    nodes[id] = {
-      x: CX + R * Math.cos(angle),
-      y: CY + R * Math.sin(angle),
-      id: id,
-      deadlock: dlp[id] === 1
-    };
+    if (nodePositions[id]) {
+      nodes[id] = { ...nodePositions[id], id, deadlock: dlp[id] === 1 };
+    } else {
+      const angle = (idx / n) * 2 * Math.PI - Math.PI / 2; // start at top
+      nodes[id] = {
+        x: CX + R * Math.cos(angle),
+        y: CY + R * Math.sin(angle),
+        id: id,
+        deadlock: dlp[id] === 1
+      };
+      nodePositions[id] = {x: nodes[id].x, y: nodes[id].y};
+    }
   });
   
   // Draw edges
@@ -954,19 +984,8 @@ function renderGraph(p, waitfor, dlp, activeNodes) {
         const marker = isCycle ? 'url(#arrow-deadlock)' : 'url(#arrow-normal)';
         const classStr = `edge ${isCycle ? 'deadlock' : ''} animated`;
         
-        // Offset start/end so lines don't overlap exactly if bidirectional
-        let dx = nodes[j].x - nodes[i].x;
-        let dy = nodes[j].y - nodes[i].y;
-        let dist = Math.sqrt(dx*dx + dy*dy);
-        let nx = -dy/dist;
-        let ny = dx/dist;
-        let curveOffset = waitfor[j][i] ? 15 : 0; // Curve if bidirectional
-        
-        let cx = (nodes[i].x + nodes[j].x)/2 + nx*curveOffset;
-        let cy = (nodes[i].y + nodes[j].y)/2 + ny*curveOffset;
-        
         edgesHtml += `<g id="edge-${i}-${j}" class="${classStr}">
-          <path d="M ${nodes[i].x} ${nodes[i].y} Q ${cx} ${cy} ${nodes[j].x} ${nodes[j].y}" marker-end="${marker}"></path>
+          <path d="${getEdgePath(nodes[i], nodes[j], waitfor[j][i])}" marker-end="${marker}"></path>
         </g>`;
       }
     }
@@ -979,7 +998,7 @@ function renderGraph(p, waitfor, dlp, activeNodes) {
   activeArr.forEach(id => {
     const node = nodes[id];
     const statusClass = node.deadlock ? 'deadlock' : 'safe';
-    nodesHtml += `<g id="node-${id}" class="node ${statusClass}" transform="translate(${node.x},${node.y})">
+    nodesHtml += `<g id="node-${id}" class="node ${statusClass}" transform="translate(${node.x},${node.y})" onmousedown="startDrag(event, ${id})" ontouchstart="startDrag(event, ${id})">
       <circle r="18" class="${node.deadlock ? 'pulse' : ''}"></circle>
       <text>${id}</text>
     </g>`;
@@ -990,6 +1009,84 @@ function renderGraph(p, waitfor, dlp, activeNodes) {
   svg += `</svg>`;
   svgWrap.innerHTML = svg;
 }
+
+// --- Drag Logic ---
+let draggedNode = null;
+let svgDragOffset = {x: 0, y: 0};
+
+function startDrag(e, id) {
+  e.preventDefault();
+  draggedNode = id;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  
+  const nodeEl = document.getElementById(`node-${id}`);
+  nodeEl.classList.add('dragging');
+  
+  const svg = document.querySelector('#svg-container svg');
+  const pt = svg.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+  
+  svgDragOffset.x = svgP.x - nodePositions[id].x;
+  svgDragOffset.y = svgP.y - nodePositions[id].y;
+}
+
+function onDrag(e) {
+  if (draggedNode === null) return;
+  e.preventDefault(); 
+  
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  
+  const svg = document.querySelector('#svg-container svg');
+  const pt = svg.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+  
+  let newX = svgP.x - svgDragOffset.x;
+  let newY = svgP.y - svgDragOffset.y;
+  
+  nodePositions[draggedNode].x = newX;
+  nodePositions[draggedNode].y = newY;
+  
+  const nodeEl = document.getElementById(`node-${draggedNode}`);
+  if(nodeEl) {
+    nodeEl.setAttribute('transform', `translate(${newX}, ${newY})`);
+  }
+  
+  if(lastAnalysisResult) {
+    const p = lastAnalysisResult.p;
+    const waitfor = lastAnalysisResult.waitfor;
+    for(let i=0; i<p; i++){
+      if(waitfor[draggedNode][i]) {
+        const pathEl = document.querySelector(`#edge-${draggedNode}-${i} path`);
+        if(pathEl && nodePositions[draggedNode] && nodePositions[i]) {
+          pathEl.setAttribute('d', getEdgePath(nodePositions[draggedNode], nodePositions[i], waitfor[i][draggedNode]));
+        }
+      }
+      if(waitfor[i][draggedNode]) {
+        const pathEl = document.querySelector(`#edge-${i}-${draggedNode} path`);
+        if(pathEl && nodePositions[i] && nodePositions[draggedNode]) {
+          pathEl.setAttribute('d', getEdgePath(nodePositions[i], nodePositions[draggedNode], waitfor[draggedNode][i]));
+        }
+      }
+    }
+  }
+}
+
+function endDrag() {
+  if (draggedNode !== null) {
+    const nodeEl = document.getElementById(`node-${draggedNode}`);
+    if(nodeEl) nodeEl.classList.remove('dragging');
+    draggedNode = null;
+  }
+}
+
+document.addEventListener('mousemove', onDrag, {passive: false});
+document.addEventListener('mouseup', endDrag);
+document.addEventListener('touchmove', onDrag, {passive: false});
+document.addEventListener('touchend', endDrag);
 
 // --- Step by Step logic ---
 function updateStepButtons() {
