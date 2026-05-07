@@ -215,6 +215,16 @@ svg { width: 100%; height: 100%; display: block; }
 .btn-export { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 8px; font-family: var(--mono); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; }
 .btn-export:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 
+/* History */
+.history-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer; transition: background 0.2s; }
+.history-row:hover { background: var(--surface-hover); }
+.history-row:last-child { border-bottom: none; }
+.hist-id { color: var(--muted-dim); font-family: var(--mono); width: 24px; }
+.hist-time { color: var(--muted); font-family: var(--mono); width: 60px; }
+.hist-pr { font-family: var(--mono); width: 45px; }
+.hist-status { display: flex; align-items: center; gap: 4px; width: 80px; }
+.hist-involved { color: var(--muted-dim); flex: 1; }
+
 /* Animations */
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
@@ -388,11 +398,22 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
       </button>
     </div>
 
+    <div class="section-label">08 — Session History</div>
+    <div class="card" style="margin-bottom: 2rem;">
+      <div class="card-title" style="margin-bottom:0; display:flex; justify-content:space-between; align-items:center;">
+        <span>History <button class="btn-reset" style="margin-left:8px; padding:2px 6px;" onclick="toggleHistory()" id="btn-toggle-hist">[▼ Show]</button></span>
+        <button class="btn-reset" style="padding:2px 6px;" onclick="clearHistory()">Clear History</button>
+      </div>
+      <div id="history-content" style="display:none; margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+        <div id="history-list"></div>
+      </div>
+    </div>
+
   </div>
 
   <footer>
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.4.0</span>
+    <span class="footer-tag">v2.5.0</span>
   </footer>
 
 </div>
@@ -435,6 +456,9 @@ let currentTrace = [];
 let currentStep = -1;
 let autoPlayInterval = null;
 let lastAnalysisResult = null; // store results for exports
+let sessionHistory = [];
+let historyIdCounter = 1;
+let historyExpanded = false;
 
 // --- Initialization ---
 function init() {
@@ -674,6 +698,24 @@ function analyzeSystem(isSimulated = false) {
 
   // Save results for export
   lastAnalysisResult = { p, r, alloc, req, waitfor, dlp, deadlockDetected, activeNodes, isSimulated };
+
+  // Update Session History
+  if(!isSimulated) {
+    let involvedArray = [];
+    for(let i=0; i<p; i++) {
+      if(dlp[i]) involvedArray.push('P'+i);
+    }
+    sessionHistory.unshift({
+      id: historyIdCounter++,
+      timestamp: new Date(),
+      p, r, deadlock: deadlockDetected,
+      involved: involvedArray,
+      alloc: JSON.parse(JSON.stringify(alloc)),
+      req: JSON.parse(JSON.stringify(req))
+    });
+    if(sessionHistory.length > 10) sessionHistory.pop();
+    renderHistory();
+  }
 
   // 3. Render UI
   renderBanner(deadlockDetected);
@@ -1144,6 +1186,57 @@ function toggleTheme() {
     localStorage.setItem('theme', 'light');
     document.getElementById('theme-btn').innerText = '☀';
   }
+}
+
+// --- History Logic ---
+function toggleHistory() {
+  historyExpanded = !historyExpanded;
+  document.getElementById('history-content').style.display = historyExpanded ? 'block' : 'none';
+  document.getElementById('btn-toggle-hist').innerText = historyExpanded ? '[▲ Hide]' : '[▼ Show]';
+}
+
+function clearHistory() {
+  sessionHistory = [];
+  historyIdCounter = 1;
+  renderHistory();
+}
+
+function loadHistoryRun(index) {
+  const record = sessionHistory[index];
+  if(!record) return;
+  document.getElementById('np').value = record.p;
+  document.getElementById('nr').value = record.r;
+  buildMatrices(true, record.alloc, record.req);
+  analyzeSystem(false);
+}
+
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  if(!list) return;
+  if(sessionHistory.length === 0) {
+    list.innerHTML = '<div style="font-style:italic; color:var(--muted-dim); font-size:12px;">No runs yet.</div>';
+    return;
+  }
+  
+  let h = '';
+  sessionHistory.forEach((rec, idx) => {
+    const time = rec.timestamp.toTimeString().split(' ')[0]; // HH:MM:SS
+    const statusHtml = rec.deadlock 
+      ? '<span style="color:var(--danger);">❌ DEADLOCK</span>'
+      : '<span style="color:var(--accent);">✅ SAFE</span>';
+    const involvedHtml = rec.deadlock 
+      ? `${rec.involved.length} involved — ${rec.involved.join(',')}`
+      : `0 involved`;
+      
+    h += `<div class="history-row" onclick="loadHistoryRun(${idx})">
+      <div class="hist-id">#${rec.id}</div>
+      <div class="hist-time">${time}</div>
+      <div class="hist-pr">${rec.p}P/${rec.r}R</div>
+      <div class="hist-status">${statusHtml}</div>
+      <div class="hist-involved">${involvedHtml}</div>
+    </div>`;
+  });
+  list.innerHTML = h;
 }
 
 // --- Keyboard Shortcuts ---
