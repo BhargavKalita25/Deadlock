@@ -237,7 +237,25 @@ svg { width: 100%; height: 100%; display: block; }
 .btn-export { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 8px; font-family: var(--mono); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; }
 .btn-export:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 
-/* History */
+/* History & Batch */
+.history-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer; transition: background 0.2s; }
+.history-row:hover { background: var(--surface-hover); }
+.history-row:last-child { border-bottom: none; }
+.hist-id { color: var(--muted-dim); font-family: var(--mono); width: 24px; }
+.hist-time { color: var(--muted); font-family: var(--mono); width: 60px; }
+.hist-pr { font-family: var(--mono); width: 45px; }
+.hist-status { display: flex; align-items: center; gap: 4px; width: 80px; }
+.hist-involved { color: var(--muted-dim); flex: 1; }
+
+.batch-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }
+.batch-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-family: var(--mono); font-size: 13px; width: 60px; outline: none; }
+.batch-input:focus { border-color: var(--accent); }
+.batch-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); text-align: left; margin-bottom: 1rem; }
+.batch-table th, .batch-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+.batch-table th { color: var(--muted-dim); font-size: 10px; text-transform: uppercase; font-family: var(--sans); }
+.batch-table tbody tr.clickable { cursor: pointer; transition: background 0.2s; }
+.batch-table tbody tr.clickable:hover { background: var(--surface-hover); }
+.batch-summary { font-size: 12px; color: var(--text); display: flex; justify-content: space-between; align-items: center; }
 .history-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; cursor: pointer; transition: background 0.2s; }
 .history-row:hover { background: var(--surface-hover); }
 .history-row:last-child { border-bottom: none; }
@@ -484,11 +502,40 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
       </div>
     </div>
 
+    <div class="section-label">09 — Batch Simulation</div>
+    <div class="card" style="margin-bottom: 2rem;">
+      <div class="card-title">Automated Scenario Testing</div>
+      <div class="batch-controls">
+        <label style="margin: 0; color: var(--text); font-size: 12px; letter-spacing: normal; text-transform: none;">Number of scenarios:</label>
+        <input type="number" id="batch-n" class="batch-input" min="1" max="50" value="10">
+        <button class="btn-save-preset" onclick="runBatchSimulation()">Run Batch ▶</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="batch-table" id="batch-table" style="display: none;">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Processes</th>
+              <th>Resources</th>
+              <th>Result</th>
+              <th>Deadlocked</th>
+              <th>Density</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="batch-summary" id="batch-summary" style="display: none;">
+        <span id="batch-stats"></span>
+        <button class="btn-reset" style="margin: 0;" onclick="clearBatch()">Clear</button>
+      </div>
+    </div>
+
   </div>
 
   <footer role="contentinfo">
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.10.0</span>
+    <span class="footer-tag">v2.11.0</span>
   </footer>
 
 </div>
@@ -1640,6 +1687,160 @@ function renderHistory() {
     </div>`;
   });
   list.innerHTML = h;
+}
+
+// --- Batch Simulation ---
+let batchResults = [];
+
+function runBatchSimulation() {
+  const nInput = parseInt(document.getElementById('batch-n').value);
+  const n = isNaN(nInput) || nInput < 1 ? 1 : Math.min(nInput, 50);
+  document.getElementById('batch-n').value = n; // clamp UI
+  
+  batchResults = [];
+  let deadlockedCount = 0;
+  let totalDensity = 0;
+  
+  for(let b=0; b<n; b++) {
+    const p = Math.floor(Math.random() * 4) + 2; // 2-5
+    const r = Math.floor(Math.random() * 3) + 2; // 2-4
+    
+    const alloc = [];
+    const req = [];
+    const activeNodes = new Set();
+    
+    for(let i=0; i<p; i++){
+      alloc[i] = []; req[i] = [];
+      for(let j=0; j<r; j++){
+        alloc[i][j] = Math.random() > 0.5 ? 1 : 0;
+        if(alloc[i][j] === 1) {
+          req[i][j] = 0;
+        } else {
+          req[i][j] = Math.random() > 0.5 ? 1 : 0;
+        }
+        if(alloc[i][j] > 0 || req[i][j] > 0) activeNodes.add(i);
+      }
+    }
+    
+    const waitfor = [];
+    for(let i=0; i<p; i++){
+      waitfor[i] = [];
+      for(let j=0; j<p; j++) waitfor[i][j] = 0;
+    }
+    
+    let edgeCount = 0;
+    for(let i=0; i<p; i++){
+      for(let j=0; j<r; j++){
+        if(req[i][j] > 0) {
+          for(let k=0; k<p; k++){
+            if(k !== i && alloc[k][j] > 0) {
+              if (waitfor[i][k] === 0) {
+                waitfor[i][k] = 1;
+                edgeCount++;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    const maxEdges = p * (p - 1);
+    const density = maxEdges > 0 ? (edgeCount / maxEdges) * 100 : 0;
+    totalDensity += density;
+    
+    const visited = Array(p).fill(0);
+    const stack = Array(p).fill(0);
+    const dlp = Array(p).fill(0);
+    
+    function dfs(v) {
+      visited[v] = 1; stack[v] = 1;
+      let inCycle = false;
+      for(let i=0; i<p; i++) {
+        if(waitfor[v][i]) {
+          if(!visited[i]) {
+            if(dfs(i)) { dlp[i]=1; inCycle=true; }
+          } else if(stack[i]) {
+            dlp[i]=1; dlp[v]=1; inCycle=true;
+          }
+        }
+      }
+      stack[v] = 0;
+      return inCycle;
+    }
+    
+    let isDeadlock = false;
+    for(let i=0; i<p; i++) {
+      if(!visited[i] && activeNodes.has(i)) {
+        if(dfs(i)) isDeadlock = true;
+      }
+    }
+    
+    for(let _=0; _<p; _++) {
+      for(let i=0; i<p; i++){
+        for(let j=0; j<p; j++){
+          if(waitfor[i][j] && dlp[j]) dlp[i] = 1;
+        }
+      }
+    }
+    
+    let dProcs = 0;
+    for(let i=0; i<p; i++) if(dlp[i]) dProcs++;
+    if(isDeadlock) deadlockedCount++;
+    
+    batchResults.push({ id: b+1, p, r, alloc, req, isDeadlock, dProcs, density });
+  }
+  
+  renderBatchTable(deadlockedCount, totalDensity, n);
+}
+
+function renderBatchTable(dCount, tDensity, n) {
+  const table = document.getElementById('batch-table');
+  const tbody = table.querySelector('tbody');
+  tbody.innerHTML = '';
+  
+  batchResults.forEach(res => {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable';
+    tr.onclick = () => loadBatchScenario(res.id - 1);
+    
+    const resHtml = res.isDeadlock ? '<span class="badge badge-blocked">❌ LOCK</span>' : '<span class="badge badge-ok">✅ SAFE</span>';
+    
+    tr.innerHTML = `
+      <td>${res.id}</td>
+      <td>${res.p}</td>
+      <td>${res.r}</td>
+      <td>${resHtml}</td>
+      <td style="color:${res.dProcs > 0 ? 'var(--danger)' : 'var(--accent)'}">${res.dProcs}</td>
+      <td>${Math.round(res.density)}%</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  const avgDensity = tDensity / n;
+  const perc = Math.round((dCount / n) * 100);
+  document.getElementById('batch-stats').innerHTML = `<b>${dCount} / ${n}</b> deadlocked (${perc}%). Avg density: <b>${Math.round(avgDensity)}%</b>.`;
+  
+  table.style.display = 'table';
+  document.getElementById('batch-summary').style.display = 'flex';
+}
+
+function clearBatch() {
+  document.getElementById('batch-table').style.display = 'none';
+  document.getElementById('batch-summary').style.display = 'none';
+  batchResults = [];
+}
+
+function loadBatchScenario(idx) {
+  const scenario = batchResults[idx];
+  document.getElementById('np').value = scenario.p;
+  document.getElementById('nr').value = scenario.r;
+  buildMatrices(true, scenario.alloc, scenario.req);
+  analyzeSystem(false);
+  
+  const outputEl = document.getElementById('output-section');
+  if(outputEl && outputEl.style.display === 'block') {
+    outputEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 // --- Keyboard Shortcuts ---
