@@ -30,6 +30,17 @@
   --sans: 'Syne', sans-serif;
 }
 
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #f1f5f9;
+  --card: #ffffff;
+  --border: rgba(0,0,0,0.08);
+  --border-strong: rgba(0,0,0,0.15);
+  --text: #0f172a;
+  --muted: #475569;
+  --muted-dim: #94a3b8;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -52,6 +63,12 @@ body::before {
   background-size: 40px 40px;
   pointer-events: none;
   z-index: 0;
+}
+
+[data-theme="light"] body::before {
+  background-image:
+    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
 }
 
 .container {
@@ -218,7 +235,10 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
         <p>OS Resource Analysis Tool</p>
       </div>
     </div>
-    <div class="status-pill">● ONLINE</div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button class="status-pill" id="theme-btn" onclick="toggleTheme()" style="cursor: pointer; background: transparent; border: 1px solid var(--border); color: var(--text);">🌙</button>
+      <div class="status-pill">● ONLINE</div>
+    </div>
   </header>
 
   <div class="section-label">01 — Configuration</div>
@@ -328,7 +348,7 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
 
   <footer>
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.0.0</span>
+    <span class="footer-tag">v2.1.0</span>
   </footer>
 
 </div>
@@ -981,8 +1001,30 @@ function downloadSVG() {
   document.body.removeChild(a);
 }
 
+// --- Theme logic ---
+function toggleTheme() {
+  const root = document.documentElement;
+  if (root.getAttribute('data-theme') === 'light') {
+    root.removeAttribute('data-theme');
+    localStorage.setItem('theme', 'dark');
+    document.getElementById('theme-btn').innerText = '🌙';
+  } else {
+    root.setAttribute('data-theme', 'light');
+    localStorage.setItem('theme', 'light');
+    document.getElementById('theme-btn').innerText = '☀';
+  }
+}
+
 // On load
-window.onload = init;
+window.onload = () => {
+  if (localStorage.getItem('theme') === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    document.getElementById('theme-btn').innerText = '☀';
+  } else {
+    document.getElementById('theme-btn').innerText = '🌙';
+  }
+  init();
+};
 </script>
 </body>
 </html>
