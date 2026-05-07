@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deadlock Detection System</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* CSS Styles */
+:root {
+  --bg: #09090b;
+  --surface: #111113;
+  --surface-hover: #1f1f22;
+  --card: #18181b;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.15);
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --muted-dim: #71717a;
+  --accent: #22c55e;
+  --accent-dim: rgba(34,197,94,0.12);
+  --danger: #ef4444;
+  --danger-dim: rgba(239,68,68,0.12);
+  --danger-hover: #dc2626;
+  --blue: #3b82f6;
+  --blue-dim: rgba(59,130,246,0.12);
+  --yellow: #eab308;
+  --yellow-dim: rgba(234,179,8,0.12);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Background grid */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* Header */
+header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-icon { width: 42px; height: 42px; border-radius: 10px; background: var(--accent-dim); border: 1px solid rgba(34,197,94,0.3); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.logo-text h1 { font-family: var(--sans); font-size: 16px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); line-height: 1; }
+.logo-text p { font-size: 11px; color: var(--muted-dim); margin-top: 4px; letter-spacing: 0.05em; text-transform: uppercase; }
+.status-pill { font-size: 11px; font-family: var(--mono); padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(34,197,94,0.3); background: var(--accent-dim); color: var(--accent); letter-spacing: 0.05em; }
+
+/* Section label */
+.section-label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted-dim); margin-bottom: 12px; margin-top: 2rem; display: flex; align-items: center; gap: 8px; }
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* Card */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; margin-bottom: 1rem; transition: border-color 0.2s; }
+.card:hover { border-color: var(--border-strong); }
+.card-title { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--muted-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; }
+
+/* Config grid & Presets */
+.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-dim); margin-bottom: 8px; }
+input[type=number] { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--text); outline: none; transition: all 0.2s; -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+input[type=number]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(34,197,94,0.1); }
+
+.presets-container { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.preset-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-family: var(--mono); font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+.preset-btn:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
+.preset-btn.active { background: var(--blue-dim); border-color: var(--blue); color: #93c5fd; }
+.preset-desc { font-size: 12px; color: var(--muted-dim); margin-bottom: 1rem; font-style: italic; display: none; }
+
+/* Matrices */
+.matrix-flex { display: flex; gap: 1rem; flex-wrap: wrap; }
+.matrix-container { flex: 1; min-width: 300px; }
+.matrix-scroll { overflow-x: auto; padding-bottom: 8px; }
+.matrix-table { border-collapse: collapse; width: max-content; }
+.matrix-table th { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-dim); padding: 6px 8px; text-align: center; font-weight: 400; }
+.matrix-table td { padding: 4px; }
+.matrix-table .row-label { font-size: 11px; color: var(--muted-dim); padding-right: 12px; white-space: nowrap; letter-spacing: 0.05em; text-align: right; }
+.matrix-table input[type=number] { width: 52px; font-size: 14px; padding: 6px 0; text-align: center; }
+
+/* Analyze btn */
+.btn-analyze { width: 100%; padding: 14px; background: var(--accent); color: #000; border: none; border-radius: 10px; font-family: var(--sans); font-size: 15px; font-weight: 800; letter-spacing: -0.01em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: transform 0.1s, opacity 0.15s; margin: 2rem 0; }
+.btn-analyze:hover { opacity: 0.9; }
+.btn-analyze:active { transform: scale(0.99); }
+
+/* SVG Graph */
+.svg-container { width: 100%; height: 400px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); position: relative; overflow: hidden; }
+svg { width: 100%; height: 100%; display: block; }
+.node circle { fill: var(--surface); stroke: var(--muted-dim); stroke-width: 2; transition: all 0.3s; }
+.node text { fill: var(--text); font-family: var(--mono); font-size: 14px; text-anchor: middle; dominant-baseline: central; user-select: none; }
+.node.safe circle { stroke: var(--accent); }
+.node.deadlock circle { stroke: var(--danger); fill: var(--danger-dim); }
+.node.deadlock circle.pulse { animation: pulseRed 2s infinite; }
+.node.active circle { stroke: var(--yellow); fill: var(--yellow-dim); stroke-width: 3; }
+.edge path { fill: none; stroke: var(--muted-dim); stroke-width: 2; transition: all 0.3s; }
+.edge.deadlock path { stroke: var(--danger); }
+.edge.active path { stroke: var(--yellow); }
+.edge.animated path { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: drawEdge 1s forwards ease-in-out; }
+
+/* Dependencies */
+.dep-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.dep-chip { font-size: 12px; font-family: var(--mono); padding: 4px 12px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); display: flex; align-items: center; gap: 6px; animation: fadeIn 0.3s ease both; }
+.dep-chip .arrow { color: var(--muted-dim); font-size: 10px; }
+.dep-chip.cycle { background: var(--danger-dim); border-color: rgba(239,68,68,0.3); color: #fca5a5; }
+.dep-chip.cycle .arrow { color: var(--danger); }
+.no-dep { font-size: 13px; color: var(--muted-dim); font-style: italic; }
+
+/* Result Banner */
+.result-banner { border-radius: 12px; padding: 1.25rem 1.5rem; display: flex; align-items: center; gap: 16px; margin-bottom: 1.5rem; animation: slideUp 0.4s ease both; }
+.result-banner.safe { background: var(--accent-dim); border: 1px solid rgba(34,197,94,0.25); }
+.result-banner.deadlock { background: var(--danger-dim); border: 1px solid rgba(239,68,68,0.25); }
+.banner-icon { font-size: 28px; flex-shrink: 0; }
+.banner-title { font-family: var(--sans); font-size: 18px; font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; border-right: 2px solid transparent; }
+.safe .banner-title { color: var(--accent); animation: typing 1s steps(20, end), blink-caret .75s step-end infinite; }
+.deadlock .banner-title { color: var(--danger); animation: typing 1s steps(20, end), blink-caret .75s step-end infinite; }
+.banner-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* Step-through */
+.step-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+.step-controls { display: flex; gap: 8px; margin-bottom: 1rem; }
+.step-btn { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 12px; font-family: var(--mono); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.step-btn:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-strong); }
+.step-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.step-btn.active { background: var(--blue-dim); color: #93c5fd; border-color: var(--blue); }
+.step-log { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; height: 100px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.log-entry { color: var(--muted); padding: 2px 0; }
+.log-entry.active { color: var(--text); font-weight: bold; background: rgba(255,255,255,0.05); }
+.log-entry.cycle { color: var(--danger); }
+
+/* Process List / Alloc Table */
+.alloc-summary-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.alloc-summary-table th { padding: 10px; border-bottom: 1px solid var(--border); color: var(--muted-dim); font-size: 11px; text-transform: uppercase; }
+.alloc-summary-table td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.alloc-summary-table tr:last-child td { border-bottom: none; }
+.badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+.badge-ok { background: var(--accent-dim); color: var(--accent); }
+.badge-blocked { background: var(--danger-dim); color: var(--danger); }
+.badge-waiting { background: var(--yellow-dim); color: var(--yellow); }
+
+/* Resolution */
+.resolution-panel { background: var(--surface); border-radius: 8px; border: 1px solid var(--danger); border-left: 4px solid var(--danger); padding: 1rem; margin-bottom: 1rem; }
+.res-title { font-family: var(--sans); font-size: 14px; font-weight: bold; color: var(--danger); margin-bottom: 10px; }
+.res-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-terminate { background: var(--danger-dim); border: 1px solid rgba(239,68,68,0.5); color: #fca5a5; padding: 6px 12px; border-radius: 6px; font-family: var(--mono); font-size: 12px; cursor: pointer; transition: all 0.2s; }
+.btn-terminate:hover { background: var(--danger); color: #fff; }
+.btn-reset { background: var(--surface); border: 1px solid var(--border); color: var(--muted); padding: 6px 12px; border-radius: 6px; font-family: var(--mono); font-size: 12px; cursor: pointer; margin-left: auto; }
+.btn-reset:hover { border-color: var(--text); color: var(--text); }
+
+/* Export */
+.export-row { display: flex; gap: 1rem; margin-top: 1rem; }
+.btn-export { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 8px; font-family: var(--mono); font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; }
+.btn-export:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes drawEdge { to { stroke-dashoffset: 0; } }
+@keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+@keyframes typing { from { width: 0 } to { width: 100% } }
+@keyframes blink-caret { from, to { border-color: transparent } 50% { border-color: var(--text); } }
+
+.scan-overlay { position: relative; overflow: hidden; }
+.scan-overlay::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px); pointer-events: none; }
+
+footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted-dim); letter-spacing: 0.05em; }
+.footer-tag { padding: 3px 8px; border-radius: 4px; background: var(--surface); border: 1px solid var(--border); font-family: var(--mono); }
+
+@media(max-width:600px){
+  .config-grid { grid-template-columns: 1fr; }
+  .matrix-flex { flex-direction: column; }
+  header { flex-direction: column; gap: 1rem; }
+  .export-row { flex-direction: column; gap: 8px; }
+}
+
+#output-section { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⚙</div>
+      <div class="logo-text">
+        <h1>Deadlock Detection System</h1>
+        <p>OS Resource Analysis Tool</p>
+      </div>
+    </div>
+    <div class="status-pill">● ONLINE</div>
+  </header>
+
+  <div class="section-label">01 — Configuration</div>
+  
+  <div class="presets-container" id="preset-list">
+    <!-- Presets generated via JS -->
+  </div>
+  <div class="preset-desc" id="preset-desc"></div>
+
+  <div class="config-grid">
+    <div class="card" style="margin-bottom:0">
+      <label>Number of Processes</label>
+      <input type="number" id="np" min="1" max="12" value="3" oninput="buildMatrices(false)">
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <label>Number of Resources</label>
+      <input type="number" id="nr" min="1" max="8" value="2" oninput="buildMatrices(false)">
+    </div>
+  </div>
+
+  <div class="matrix-flex">
+    <div class="matrix-container">
+      <div class="section-label">02A — Allocation Matrix</div>
+      <div class="card">
+        <div class="card-title">Held Resources</div>
+        <div class="matrix-scroll">
+          <table class="matrix-table" id="alloc-table"></table>
+        </div>
+      </div>
+    </div>
+    <div class="matrix-container">
+      <div class="section-label">02B — Request Matrix</div>
+      <div class="card">
+        <div class="card-title">Requested Resources</div>
+        <div class="matrix-scroll">
+          <table class="matrix-table" id="req-table"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn-analyze" onclick="analyzeSystem()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    Analyze System
+  </button>
+
+  <div id="output-section">
+    <div class="section-label">03 — Result Overview</div>
+    <div id="result-banner-wrap"></div>
+    
+    <div id="resolution-wrap"></div>
+
+    <div class="section-label">04 — Wait-For Graph</div>
+    <div class="card" style="padding: 0; border: none;">
+      <div class="svg-container" id="svg-container">
+        <!-- SVG injected via JS -->
+      </div>
+    </div>
+
+    <div class="section-label">05 — Step-By-Step DFS</div>
+    <div class="card">
+      <div class="card-title">Algorithm Trace</div>
+      <div class="step-controls">
+        <button class="step-btn" id="btn-prev" onclick="stepPrev()">⏮ Prev</button>
+        <button class="step-btn" id="btn-next" onclick="stepNext()">Next ⏭</button>
+        <button class="step-btn" id="btn-auto" onclick="toggleAutoPlay()">▶ Auto-Play</button>
+      </div>
+      <div class="step-log" id="step-log"></div>
+    </div>
+
+    <div class="section-label">06 — Process & Dependencies Summary</div>
+    <div class="card">
+      <div class="card-title">Resource Allocation Table</div>
+      <div style="overflow-x:auto;">
+        <table class="alloc-summary-table" id="summary-table">
+          <thead>
+            <tr>
+              <th>Process</th>
+              <th>Holds</th>
+              <th>Requests</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+      <div class="card-title">Wait-For Edges</div>
+      <div class="dep-grid" id="dep-chips"></div>
+    </div>
+
+    <div class="section-label">07 — Export</div>
+    <div class="export-row">
+      <button class="btn-export" onclick="copyReport()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        Copy as Text
+      </button>
+      <button class="btn-export" onclick="downloadSVG()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Download SVG
+      </button>
+    </div>
+
+  </div>
+
+  <footer>
+    <span>Deadlock Detection · Wait-For Graph Analysis</span>
+    <span class="footer-tag">v2.0.0</span>
+  </footer>
+
+</div>
+
+<script>
+// --- Data & Presets ---
+const PRESETS = [
+  {
+    name: "No Deadlock",
+    desc: "Safe state: 3 processes, 2 resources. No circular wait.",
+    p: 3, r: 2,
+    alloc: [[1,0],[0,1],[0,0]],
+    req: [[0,1],[0,0],[1,0]]
+  },
+  {
+    name: "Simple Deadlock",
+    desc: "Direct deadlock: 2 processes waiting on each other.",
+    p: 2, r: 2,
+    alloc: [[1,0],[0,1]],
+    req: [[0,1],[1,0]]
+  },
+  {
+    name: "Chain Deadlock",
+    desc: "3-way cycle: P0→P1→P2→P0.",
+    p: 3, r: 3,
+    alloc: [[1,0,0],[0,1,0],[0,0,1]],
+    req: [[0,1,0],[0,0,1],[1,0,0]]
+  },
+  {
+    name: "Complex (4P)",
+    desc: "4 processes with partial deadlock.",
+    p: 4, r: 3,
+    alloc: [[1,0,0],[0,1,0],[0,0,1],[1,0,0]],
+    req: [[0,1,0],[0,0,1],[1,0,0],[0,1,0]]
+  }
+];
+
+let originalState = null; // for reset
+let currentTrace = [];
+let currentStep = -1;
+let autoPlayInterval = null;
+let lastAnalysisResult = null; // store results for exports
+
+// --- Initialization ---
+function init() {
+  const pContainer = document.getElementById('preset-list');
+  PRESETS.forEach((preset, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn';
+    btn.innerText = preset.name;
+    btn.onclick = () => loadPreset(i);
+    pContainer.appendChild(btn);
+  });
+  
+  // Load default layout
+  buildMatrices(false);
+}
+
+function loadPreset(idx) {
+  document.querySelectorAll('.preset-btn').forEach((b, i) => b.classList.toggle('active', i === idx));
+  const preset = PRESETS[idx];
+  document.getElementById('preset-desc').innerText = preset.desc;
+  document.getElementById('preset-desc').style.display = 'block';
+  
+  document.getElementById('np').value = preset.p;
+  document.getElementById('nr').value = preset.r;
+  
+  buildMatrices(true, preset.alloc, preset.req);
+  hideOutput();
+  originalState = null; // Clear backup since we changed preset
+}
+
+function hideOutput() {
+  document.getElementById('output-section').style.display = 'none';
+  stopAutoPlay();
+}
+
+// --- Matrix Building ---
+function buildMatrices(forceData = false, presetAlloc = null, presetReq = null) {
+  const p = parseInt(document.getElementById('np').value) || 3;
+  const r = parseInt(document.getElementById('nr').value) || 2;
+
+  ['alloc-table', 'req-table'].forEach(id => {
+    const t = document.getElementById(id);
+    const isAlloc = id === 'alloc-table';
+    const presetData = isAlloc ? presetAlloc : presetReq;
+    
+    // Save current values if not forcing new data
+    const saved = {};
+    if (!forceData) {
+      t.querySelectorAll('input').forEach(inp => { saved[inp.id] = inp.value; });
+    }
+
+    let h = '<thead><tr><th></th>';
+    for (let j = 0; j < r; j++) h += `<th>R${j}</th>`;
+    h += '</tr></thead><tbody>';
+    
+    for (let i = 0; i < p; i++) {
+      h += `<tr><td class="row-label">P${i}</td>`;
+      for (let j = 0; j < r; j++) {
+        const key = `${id}-${i}-${j}`;
+        let val = '0';
+        if (forceData && presetData && presetData[i] && presetData[i][j] !== undefined) {
+          val = presetData[i][j];
+        } else if (!forceData && saved[key] !== undefined) {
+          val = saved[key];
+        }
+        h += `<td><input type="number" id="${key}" value="${val}" min="0" max="99"></td>`;
+      }
+      h += '</tr>';
+    }
+    h += '</tbody>';
+    t.innerHTML = h;
+  });
+  
+  if (!forceData) hideOutput();
+}
+
+function getMatrix(id, p, r) {
+  const m = [];
+  for (let i = 0; i < p; i++) {
+    m.push([]);
+    for (let j = 0; j < r; j++) {
+      m[i].push(parseInt(document.getElementById(`${id}-${i}-${j}`).value) || 0);
+    }
+  }
+  return m;
+}
+
+function setMatrix(id, matrix) {
+  const p = matrix.length;
+  const r = matrix[0] ? matrix[0].length : 0;
+  for(let i=0; i<p; i++){
+    for(let j=0; j<r; j++){
+      const el = document.getElementById(`${id}-${i}-${j}`);
+      if(el) el.value = matrix[i][j];
+    }
+  }
+}
+
+// --- Analysis Core ---
+function analyzeSystem(isSimulated = false) {
+  stopAutoPlay();
+  
+  const p = parseInt(document.getElementById('np').value) || 3;
+  const r = parseInt(document.getElementById('nr').value) || 2;
+  const alloc = getMatrix('alloc-table', p, r);
+  const req = getMatrix('req-table', p, r);
+
+  // Backup state if this is the first analysis
+  if (!isSimulated && !originalState) {
+    originalState = { alloc: JSON.parse(JSON.stringify(alloc)), req: JSON.parse(JSON.stringify(req)), p, r };
+  }
+
+  // 1. Build Wait-For Graph
+  const waitfor = Array.from({ length: p }, () => Array(p).fill(0));
+  const activeNodes = new Set();
+  
+  for (let i = 0; i < p; i++) {
+    // Check if process is alive (has alloc or req)
+    let isAlive = false;
+    for(let j=0; j<r; j++) if(alloc[i][j]>0 || req[i][j]>0) isAlive = true;
+    if(isAlive) activeNodes.add(i);
+
+    for (let j = 0; j < r; j++) {
+      if (req[i][j] > 0) {
+        for (let k = 0; k < p; k++) {
+          if (alloc[k][j] > 0 && i !== k) {
+            waitfor[i][k] = 1;
+            activeNodes.add(k); // waiting on it, so it's active
+          }
+        }
+      }
+    }
+  }
+
+  // 2. DFS Cycle Detection with Tracing
+  const visited = Array(p).fill(0);
+  const stack = Array(p).fill(0);
+  const dlp = Array(p).fill(0); // deadlock participation
+  currentTrace = [];
+
+  function dfs(v) {
+    visited[v] = 1; 
+    stack[v] = 1;
+    currentTrace.push({ type: 'visit', node: v, msg: `Visiting P${v}...` });
+    
+    let inCycle = false;
+
+    for (let i = 0; i < p; i++) {
+      if (waitfor[v][i]) {
+        currentTrace.push({ type: 'check', from: v, to: i, msg: `P${v} checks dependency on P${i}` });
+        
+        if (!visited[i]) {
+          if (dfs(i)) {
+            dlp[i] = 1; 
+            inCycle = true;
+          }
+        } else if (stack[i]) {
+          // Cycle detected!
+          currentTrace.push({ type: 'cycle', from: v, to: i, msg: `Cycle detected: P${v} → P${i} (Back Edge)!` });
+          dlp[i] = 1; 
+          dlp[v] = 1;
+          inCycle = true;
+        }
+      }
+    }
+    
+    stack[v] = 0; 
+    currentTrace.push({ type: 'backtrack', node: v, msg: `Backtracking from P${v}` });
+    return inCycle;
+  }
+
+  let deadlockDetected = false;
+  for (let i = 0; i < p; i++) {
+    if (!visited[i] && activeNodes.has(i)) {
+      if(dfs(i)) deadlockDetected = true;
+    }
+  }
+
+  // Ensure all nodes in the cycle path are marked
+  // Re-eval waitfor graph backwards from cycle edges to mark full chains
+  for(let _=0; _<p; _++) { // iterate enough times to propagate
+    for(let i=0; i<p; i++){
+      for(let j=0; j<p; j++){
+        if(waitfor[i][j] && dlp[j]) dlp[i] = 1; 
+      }
+    }
+  }
+
+  // Save results for export
+  lastAnalysisResult = { p, r, alloc, req, waitfor, dlp, deadlockDetected, activeNodes, isSimulated };
+
+  // 3. Render UI
+  renderBanner(deadlockDetected);
+  renderSummaryTable(p, r, alloc, req, dlp, activeNodes);
+  renderDependencies(p, waitfor, dlp);
+  renderResolution(deadlockDetected, dlp, isSimulated);
+  renderGraph(p, waitfor, dlp, activeNodes);
+  
+  // Setup Step UI
+  currentStep = -1;
+  document.getElementById('step-log').innerHTML = '';
+  updateStepButtons();
+
+  document.getElementById('output-section').style.display = 'block';
+  if(!isSimulated) {
+    document.getElementById('output-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+// --- Rendering functions ---
+function renderBanner(deadlock) {
+  const wrap = document.getElementById('result-banner-wrap');
+  if (deadlock) {
+    wrap.innerHTML = `
+      <div class="result-banner deadlock scan-overlay">
+        <div class="banner-icon">⛔</div>
+        <div>
+          <div class="banner-title">DEADLOCK DETECTED</div>
+          <div class="banner-sub">Circular wait identified. System cannot progress.</div>
+        </div>
+      </div>`;
+  } else {
+    wrap.innerHTML = `
+      <div class="result-banner safe scan-overlay">
+        <div class="banner-icon">✅</div>
+        <div>
+          <div class="banner-title">SYSTEM SAFE</div>
+          <div class="banner-sub">No circular wait detected. Processes can complete.</div>
+        </div>
+      </div>`;
+  }
+}
+
+function renderSummaryTable(p, r, alloc, req, dlp, activeNodes) {
+  const tbody = document.querySelector('#summary-table tbody');
+  let h = '';
+  for (let i = 0; i < p; i++) {
+    if (!activeNodes.has(i)) continue; // skip terminated/empty processes
+
+    const holds = [];
+    const requests = [];
+    for(let j=0; j<r; j++) {
+      if(alloc[i][j] > 0) holds.push(`R${j}(${alloc[i][j]})`);
+      if(req[i][j] > 0) requests.push(`R${j}(${req[i][j]})`);
+    }
+
+    let statusHtml = '';
+    if (dlp[i]) {
+      statusHtml = '<span class="badge badge-blocked">BLOCKED (CYCLE)</span>';
+    } else if (requests.length > 0) {
+      statusHtml = '<span class="badge badge-waiting">WAITING</span>';
+    } else {
+      statusHtml = '<span class="badge badge-ok">RUNNING</span>';
+    }
+
+    h += `<tr>
+      <td style="font-family:var(--mono); font-weight:bold;">P${i}</td>
+      <td style="color:var(--muted);">${holds.length ? holds.join(', ') : '-'}</td>
+      <td style="color:var(--muted);">${requests.length ? requests.join(', ') : '-'}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
+  }
+  if(!h) h = `<tr><td colspan="4" style="text-align:center; color:var(--muted-dim);">No active processes</td></tr>`;
+  tbody.innerHTML = h;
+}
+
+function renderDependencies(p, waitfor, dlp) {
+  const wrap = document.getElementById('dep-chips');
+  let count = 0;
+  let h = '';
+  for (let i = 0; i < p; i++) {
+    for (let j = 0; j < p; j++) {
+      if (waitfor[i][j]) {
+        count++;
+        const isCycle = dlp[i] && dlp[j];
+        h += `<span class="dep-chip ${isCycle ? 'cycle' : ''}">P${i} <span class="arrow">→</span> P${j}</span>`;
+      }
+    }
+  }
+  wrap.innerHTML = count ? h : '<span class="no-dep">No wait-for dependencies</span>';
+}
+
+function renderResolution(deadlock, dlp, isSimulated) {
+  const wrap = document.getElementById('resolution-wrap');
+  let h = '';
+  
+  if (deadlock || isSimulated) {
+    h += `<div class="resolution-panel">`;
+    if (deadlock) {
+      h += `<div class="res-title">Simulate Resolution</div>`;
+      h += `<div style="font-size:12px; color:var(--muted); margin-bottom:10px;">Terminate a deadlocked process to break the cycle and release its resources:</div>`;
+      h += `<div class="res-buttons">`;
+      for(let i=0; i<dlp.length; i++) {
+        if(dlp[i]) {
+          h += `<button class="btn-terminate" onclick="terminateProcess(${i})">Terminate P${i}</button>`;
+        }
+      }
+    } else {
+      h += `<div class="res-title" style="color:var(--accent);">Resolution Successful</div>`;
+      h += `<div style="font-size:12px; color:var(--muted); margin-bottom:10px;">The system is now safe.</div>`;
+      h += `<div class="res-buttons">`;
+    }
+    
+    // Add reset button
+    if(originalState) {
+      h += `<button class="btn-reset" onclick="resetSimulation()">↺ Reset to Original State</button>`;
+    }
+    
+    h += `</div></div>`;
+  }
+  
+  wrap.innerHTML = h;
+}
+
+// --- Simulation logic ---
+function terminateProcess(pid) {
+  const p = parseInt(document.getElementById('np').value);
+  const r = parseInt(document.getElementById('nr').value);
+  const alloc = getMatrix('alloc-table', p, r);
+  const req = getMatrix('req-table', p, r);
+  
+  // Zero out the process's alloc and req
+  for(let j=0; j<r; j++) {
+    alloc[pid][j] = 0;
+    req[pid][j] = 0;
+  }
+  
+  setMatrix('alloc-table', alloc);
+  setMatrix('req-table', req);
+  
+  analyzeSystem(true);
+}
+
+function resetSimulation() {
+  if(!originalState) return;
+  document.getElementById('np').value = originalState.p;
+  document.getElementById('nr').value = originalState.r;
+  buildMatrices(true, originalState.alloc, originalState.req);
+  originalState = null;
+  analyzeSystem(false);
+}
+
+// --- SVG Graph Rendering ---
+function renderGraph(p, waitfor, dlp, activeNodes) {
+  const svgWrap = document.getElementById('svg-container');
+  const W = svgWrap.clientWidth || 800;
+  const H = 400;
+  const CX = W / 2;
+  const CY = H / 2;
+  const R = Math.min(W, H) / 2 - 50; // Radius for circle layout
+  
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  
+  // Definitions for markers
+  svg += `<defs>
+    <marker id="arrow-normal" viewBox="0 -5 10 10" refX="28" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-5L10,0L0,5" fill="var(--muted-dim)"></path>
+    </marker>
+    <marker id="arrow-deadlock" viewBox="0 -5 10 10" refX="28" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-5L10,0L0,5" fill="var(--danger)"></path>
+    </marker>
+    <marker id="arrow-active" viewBox="0 -5 10 10" refX="28" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,-5L10,0L0,5" fill="var(--yellow)"></path>
+    </marker>
+  </defs>`;
+  
+  const nodes = [];
+  const activeArr = Array.from(activeNodes).sort((a,b)=>a-b);
+  const n = activeArr.length;
+  
+  // Calculate node positions
+  activeArr.forEach((id, idx) => {
+    const angle = (idx / n) * 2 * Math.PI - Math.PI / 2; // start at top
+    nodes[id] = {
+      x: CX + R * Math.cos(angle),
+      y: CY + R * Math.sin(angle),
+      id: id,
+      deadlock: dlp[id] === 1
+    };
+  });
+  
+  // Draw edges
+  let edgesHtml = '<g id="svg-edges">';
+  for(let i=0; i<p; i++){
+    for(let j=0; j<p; j++){
+      if(waitfor[i][j] && nodes[i] && nodes[j]) {
+        const isCycle = dlp[i] && dlp[j];
+        const marker = isCycle ? 'url(#arrow-deadlock)' : 'url(#arrow-normal)';
+        const classStr = `edge ${isCycle ? 'deadlock' : ''} animated`;
+        
+        // Offset start/end so lines don't overlap exactly if bidirectional
+        let dx = nodes[j].x - nodes[i].x;
+        let dy = nodes[j].y - nodes[i].y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        let nx = -dy/dist;
+        let ny = dx/dist;
+        let curveOffset = waitfor[j][i] ? 15 : 0; // Curve if bidirectional
+        
+        let cx = (nodes[i].x + nodes[j].x)/2 + nx*curveOffset;
+        let cy = (nodes[i].y + nodes[j].y)/2 + ny*curveOffset;
+        
+        edgesHtml += `<g id="edge-${i}-${j}" class="${classStr}">
+          <path d="M ${nodes[i].x} ${nodes[i].y} Q ${cx} ${cy} ${nodes[j].x} ${nodes[j].y}" marker-end="${marker}"></path>
+        </g>`;
+      }
+    }
+  }
+  edgesHtml += '</g>';
+  svg += edgesHtml;
+  
+  // Draw nodes
+  let nodesHtml = '<g id="svg-nodes">';
+  activeArr.forEach(id => {
+    const node = nodes[id];
+    const statusClass = node.deadlock ? 'deadlock' : 'safe';
+    nodesHtml += `<g id="node-${id}" class="node ${statusClass}" transform="translate(${node.x},${node.y})">
+      <circle r="18" class="${node.deadlock ? 'pulse' : ''}"></circle>
+      <text>${id}</text>
+    </g>`;
+  });
+  nodesHtml += '</g>';
+  svg += nodesHtml;
+  
+  svg += `</svg>`;
+  svgWrap.innerHTML = svg;
+}
+
+// --- Step by Step logic ---
+function updateStepButtons() {
+  document.getElementById('btn-prev').disabled = currentStep < 0;
+  document.getElementById('btn-next').disabled = currentStep >= currentTrace.length - 1;
+}
+
+function applyStepState() {
+  // Reset all SVG highlights
+  document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.edge').forEach(e => e.classList.remove('active'));
+  
+  // Apply state up to currentStep
+  if (currentStep >= 0 && currentStep < currentTrace.length) {
+    const t = currentTrace[currentStep];
+    if (t.type === 'visit' || t.type === 'backtrack') {
+      const n = document.getElementById(`node-${t.node}`);
+      if(n) n.classList.add('active');
+    } else if (t.type === 'check' || t.type === 'cycle') {
+      const n = document.getElementById(`node-${t.from}`);
+      if(n) n.classList.add('active');
+      const e = document.getElementById(`edge-${t.from}-${t.to}`);
+      if(e) {
+        e.classList.add('active');
+        e.querySelector('path').setAttribute('marker-end', 'url(#arrow-active)');
+      }
+    }
+  } else if (currentStep === currentTrace.length) {
+    // End of trace, restore original markers
+    document.querySelectorAll('.edge').forEach(e => {
+      const isDeadlock = e.classList.contains('deadlock');
+      e.querySelector('path').setAttribute('marker-end', isDeadlock ? 'url(#arrow-deadlock)' : 'url(#arrow-normal)');
+    });
+  }
+}
+
+function addLogEntry(stepIndex) {
+  if(stepIndex < 0 || stepIndex >= currentTrace.length) return;
+  const t = currentTrace[stepIndex];
+  const log = document.getElementById('step-log');
+  
+  // Remove active from previous
+  document.querySelectorAll('.log-entry').forEach(el => el.classList.remove('active'));
+  
+  const div = document.createElement('div');
+  div.className = `log-entry active ${t.type === 'cycle' ? 'cycle' : ''}`;
+  div.innerText = `[Step ${stepIndex + 1}] ${t.msg}`;
+  div.id = `log-${stepIndex}`;
+  log.appendChild(div);
+  
+  log.scrollTop = log.scrollHeight;
+}
+
+function stepNext() {
+  if (currentStep < currentTrace.length - 1) {
+    currentStep++;
+    applyStepState();
+    addLogEntry(currentStep);
+    updateStepButtons();
+  } else {
+    stopAutoPlay();
+  }
+}
+
+function stepPrev() {
+  if (currentStep >= 0) {
+    const logEl = document.getElementById(`log-${currentStep}`);
+    if(logEl) logEl.remove();
+    currentStep--;
+    
+    // Set previous log to active
+    if(currentStep >= 0) {
+      const prevLog = document.getElementById(`log-${currentStep}`);
+      if(prevLog) prevLog.classList.add('active');
+    }
+    
+    applyStepState();
+    updateStepButtons();
+  }
+}
+
+function toggleAutoPlay() {
+  const btn = document.getElementById('btn-auto');
+  if (autoPlayInterval) {
+    stopAutoPlay();
+  } else {
+    // If at end, restart
+    if (currentStep >= currentTrace.length - 1) {
+      currentStep = -1;
+      document.getElementById('step-log').innerHTML = '';
+      applyStepState();
+    }
+    btn.classList.add('active');
+    btn.innerText = '⏸ Pause';
+    autoPlayInterval = setInterval(() => {
+      if(currentStep < currentTrace.length - 1) stepNext();
+      else stopAutoPlay();
+    }, 700);
+  }
+}
+
+function stopAutoPlay() {
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+    const btn = document.getElementById('btn-auto');
+    if(btn) {
+      btn.classList.remove('active');
+      btn.innerText = '▶ Auto-Play';
+    }
+  }
+}
+
+// --- Export logic ---
+function copyReport() {
+  if(!lastAnalysisResult) return;
+  const r = lastAnalysisResult;
+  let deps = [];
+  for(let i=0; i<r.p; i++){
+    for(let j=0; j<r.p; j++){
+      if(r.waitfor[i][j]) deps.push(`P${i}→P${j}`);
+    }
+  }
+  
+  let involved = [];
+  for(let i=0; i<r.p; i++){
+    if(r.dlp[i]) involved.push(`P${i}`);
+  }
+  
+  const text = `=== DEADLOCK DETECTION REPORT ===
+Processes: ${r.p} | Resources: ${r.r}
+Dependencies: ${deps.length ? deps.join(', ') : 'None'}
+Result: ${r.deadlockDetected ? 'DEADLOCK DETECTED' : 'SYSTEM SAFE'}
+Involved: ${involved.length ? involved.join(', ') : 'None'}
+Resolution: ${involved.length ? 'Terminate ' + involved[involved.length-1] : 'N/A'}`;
+
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Report copied to clipboard!");
+  }).catch(err => {
+    alert("Failed to copy: " + err);
+  });
+}
+
+function downloadSVG() {
+  const svgEl = document.querySelector('#svg-container svg');
+  if(!svgEl) return;
+  
+  // Clone the SVG to add styles explicitly so it renders correctly offline
+  const clone = svgEl.cloneNode(true);
+  
+  // Inject relevant styles
+  const styleEl = document.createElement('style');
+  styleEl.textContent = `
+    .node circle { fill: #111113; stroke: #71717a; stroke-width: 2px; }
+    .node text { fill: #f4f4f5; font-family: monospace; font-size: 14px; text-anchor: middle; dominant-baseline: central; }
+    .node.safe circle { stroke: #22c55e; }
+    .node.deadlock circle { stroke: #ef4444; fill: rgba(239,68,68,0.12); }
+    .edge path { fill: none; stroke: #71717a; stroke-width: 2px; }
+    .edge.deadlock path { stroke: #ef4444; }
+  `;
+  clone.insertBefore(styleEl, clone.firstChild);
+  
+  const serializer = new XMLSerializer();
+  let source = serializer.serializeToString(clone);
+  
+  // Add namespaces if missing
+  if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  if(!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)){
+      source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+  }
+  
+  source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+  const url = "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(source);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = "wait-for-graph.svg";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// On load
+window.onload = init;
+</script>
+</body>
+</html>
