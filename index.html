@@ -401,6 +401,10 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         Download SVG
       </button>
+      <button class="btn-export" onclick="downloadPNG()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+        Download PNG
+      </button>
     </div>
 
     <div class="section-label">08 — Session History</div>
@@ -418,7 +422,7 @@ footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--bord
 
   <footer>
     <span>Deadlock Detection · Wait-For Graph Analysis</span>
-    <span class="footer-tag">v2.6.0</span>
+    <span class="footer-tag">v2.7.0</span>
   </footer>
 
 </div>
@@ -1269,6 +1273,74 @@ function downloadSVG() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+function downloadPNG() {
+  const svgEl = document.querySelector('#svg-container svg');
+  if(!svgEl) {
+    alert("Run analysis first to generate a graph.");
+    return;
+  }
+  
+  const clone = svgEl.cloneNode(true);
+  const styleEl = document.createElement('style');
+  styleEl.textContent = `
+    .node circle { fill: #111113; stroke: #71717a; stroke-width: 2px; }
+    .node text { fill: #f4f4f5; font-family: monospace; font-size: 14px; text-anchor: middle; dominant-baseline: central; }
+    .node.safe circle { stroke: #22c55e; }
+    .node.deadlock circle { stroke: #ef4444; fill: rgba(239,68,68,0.12); }
+    .edge path { fill: none; stroke: #71717a; stroke-width: 2px; }
+    .edge.deadlock path { stroke: #ef4444; }
+  `;
+  clone.insertBefore(styleEl, clone.firstChild);
+  
+  const serializer = new XMLSerializer();
+  let source = serializer.serializeToString(clone);
+  
+  if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  if(!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)){
+      source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+  }
+  source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+  
+  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+  
+  const img = new Image();
+  img.onload = function() {
+    const canvas = document.createElement('canvas');
+    const viewBox = svgEl.getAttribute('viewBox');
+    let width = 1200;
+    let height = 600;
+    if(viewBox) {
+      const parts = viewBox.split(' ');
+      width = parseFloat(parts[2]);
+      height = parseFloat(parts[3]);
+    } else {
+      width = svgEl.clientWidth || width;
+      height = svgEl.clientHeight || height;
+    }
+    
+    canvas.width = width;
+    canvas.height = height;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, width, height);
+    
+    canvas.toBlob(function(blob) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = "wait-for-graph.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }, 'image/png');
+  };
+  img.src = url;
 }
 
 // --- Theme logic ---
